@@ -54,12 +54,20 @@ end tell"#
 }
 
 fn launch_otty(command: &str, cwd: Option<&str>) -> Result<(), String> {
+    if let Ok(()) = launch_otty_cli(command, cwd) {
+        return Ok(());
+    }
+
     let full_command = build_shell_command(command, cwd);
     let escaped = escape_osascript(&full_command);
     let script = format!(
         r#"tell application "Otty"
     activate
-    do script "{escaped}"
+    if (count of windows) > 0 then
+        do script "{escaped}" in front window
+    else
+        do script "{escaped}"
+    end if
 end tell"#
     );
 
@@ -73,6 +81,32 @@ end tell"#
         Ok(())
     } else {
         Err("Otty command execution failed".to_string())
+    }
+}
+
+fn launch_otty_cli(command: &str, cwd: Option<&str>) -> Result<(), String> {
+    let cli = [
+        "/Applications/Otty.app/Contents/MacOS/otty-cli",
+        "/System/Volumes/Data/Applications/Otty.app/Contents/MacOS/otty-cli",
+    ]
+    .iter()
+    .find(|path| std::path::Path::new(path).is_file())
+    .ok_or_else(|| "Otty CLI not found".to_string())?;
+
+    let mut cmd = Command::new(cli);
+    cmd.args(["tab", "new", "--command", command]);
+    if let Some(dir) = cwd.filter(|dir| !dir.trim().is_empty()) {
+        cmd.args(["--cwd", dir]);
+    }
+
+    let status = cmd
+        .status()
+        .map_err(|e| format!("Failed to launch Otty tab: {e}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Otty CLI failed to create a tab".to_string())
     }
 }
 

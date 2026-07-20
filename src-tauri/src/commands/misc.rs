@@ -3056,13 +3056,11 @@ fn build_macos_otty_applescript(script_file: &std::path::Path) -> String {
         r#"set launcher_script to {launcher}
 set was_running to application "Otty" is running
 tell application "Otty"
-    if was_running then
-        activate
-        do script launcher_script
+    activate
+    if (count of windows) > 0 then
+        do script launcher_script in front window
     else
-        launch
         do script launcher_script
-        activate
     end if
 end tell"#,
         launcher = applescript_exec_launcher_command(script_file)
@@ -3072,6 +3070,33 @@ end tell"#,
 /// macOS: Otty
 #[cfg(target_os = "macos")]
 fn launch_macos_otty(script_file: &std::path::Path) -> Result<(), String> {
+    let cli = [
+        "/Applications/Otty.app/Contents/MacOS/otty-cli",
+        "/System/Volumes/Data/Applications/Otty.app/Contents/MacOS/otty-cli",
+    ]
+    .iter()
+    .find(|path| std::path::Path::new(path).is_file());
+
+    if let Some(cli) = cli {
+        let command = format!(
+            "exec sh {}",
+            shell_single_quote(&script_file.to_string_lossy())
+        );
+        let output = std::process::Command::new(cli)
+            .args(["tab", "new", "--command", &command])
+            .output()
+            .map_err(|e| format!("启动 Otty tab 失败: {e}"))?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        log::warn!(
+            "Otty CLI 创建 tab 失败，回退到 AppleScript: {}",
+            decode_command_output(&output.stderr)
+        );
+    }
+
     run_terminal_osascript(&build_macos_otty_applescript(script_file), "Otty")
 }
 
