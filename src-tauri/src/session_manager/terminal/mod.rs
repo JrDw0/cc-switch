@@ -24,6 +24,7 @@ pub fn launch_terminal(
         "alacritty" => launch_alacritty(command, cwd),
         #[cfg(unix)]
         "warp" => launch_warp(command, cwd),
+        "otty" => launch_otty(command, cwd),
         "custom" => launch_custom(command, cwd, custom_config),
         _ => Err(format!("Unsupported terminal target: {target}")),
     }
@@ -49,6 +50,29 @@ end tell"#
         Ok(())
     } else {
         Err("Terminal command execution failed".to_string())
+    }
+}
+
+fn launch_otty(command: &str, cwd: Option<&str>) -> Result<(), String> {
+    let full_command = build_shell_command(command, cwd);
+    let escaped = escape_osascript(&full_command);
+    let script = format!(
+        r#"tell application "Otty"
+    activate
+    do script "{escaped}"
+end tell"#
+    );
+
+    let status = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .status()
+        .map_err(|e| format!("Failed to launch Otty: {e}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Otty command execution failed".to_string())
     }
 }
 

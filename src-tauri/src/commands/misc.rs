@@ -2912,6 +2912,7 @@ echo "{config_path}"
         "ghostty" => launch_macos_ghostty(&script_file),
         "wezterm" => launch_macos_open_app("WezTerm", &script_file, true),
         "kaku" => launch_macos_open_app("Kaku", &script_file, true),
+        "otty" => launch_macos_otty(&script_file),
         _ => launch_macos_terminal_app(&script_file),
     };
 
@@ -3046,6 +3047,32 @@ end tell"#,
 #[cfg(target_os = "macos")]
 fn launch_macos_iterm2(script_file: &std::path::Path) -> Result<(), String> {
     run_terminal_osascript(&build_macos_iterm2_applescript(script_file), "iTerm2")
+}
+
+/// macOS: Otty
+#[cfg(target_os = "macos")]
+fn build_macos_otty_applescript(script_file: &std::path::Path) -> String {
+    format!(
+        r#"set launcher_script to {launcher}
+set was_running to application "Otty" is running
+tell application "Otty"
+    if was_running then
+        activate
+        do script launcher_script
+    else
+        launch
+        do script launcher_script
+        activate
+    end if
+end tell"#,
+        launcher = applescript_exec_launcher_command(script_file)
+    )
+}
+
+/// macOS: Otty
+#[cfg(target_os = "macos")]
+fn launch_macos_otty(script_file: &std::path::Path) -> Result<(), String> {
+    run_terminal_osascript(&build_macos_otty_applescript(script_file), "Otty")
 }
 
 /// Keep the launcher path inside a `sh -c` string.
@@ -3472,6 +3499,7 @@ read -r _
             "ghostty" => launch_macos_ghostty(&script_file),
             "wezterm" => launch_macos_open_app("WezTerm", &script_file, true),
             "kaku" => launch_macos_open_app("Kaku", &script_file, true),
+            "otty" => launch_macos_otty(&script_file),
             _ => launch_macos_terminal_app(&script_file),
         };
 
