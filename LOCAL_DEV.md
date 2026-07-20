@@ -47,16 +47,39 @@ git rebase main
 
 ## 打包替换本地 App
 
+### 方式 A：完整打包（首次或依赖变更时）
+
 ```bash
-# 在 local/otty-terminal 分支上
 git checkout local/otty-terminal
 pnpm tauri build
 
 # 产物位置：
-# src-tauri/target/release/bundle/macos/CC Switch_xxx.dmg（或 .app）
+# src-tauri/target/release/bundle/macos/CC Switch.app
+# src-tauri/target/release/bundle/dmg/CC Switch_3.17.0_aarch64.dmg
 ```
 
 打包完成后把 `.app` 拖到 `/Applications` 替换即可。
+
+### 方式 B：增量打包（日常改代码推荐）
+
+```bash
+./scripts/quick-build.sh
+```
+
+**原理**：跳过了 `.app`/`.dmg` 重新打包阶段，cargo 自带增量编译，只重编译改动部分。
+
+**耗时对比**：
+| 方式 | 首次 | 后续改代码 |
+|---|---|---|
+| `pnpm tauri build` | ~6 分钟 | 仍然要 bundle，慢 |
+| `./scripts/quick-build.sh` | 不可用（需先完整打包） | **10-30 秒**，只替换二进制 |
+
+**脚本自动做的事**：
+1. 检测 `dist/` 是否过期，按需跑 `pnpm vite build`（更新前端资源）
+2. `cargo build --release`（增量编译 Rust 后端，含嵌入前端资源）
+3. 关闭正在运行的 CC Switch
+4. 复制二进制到 `/Applications/CC Switch.app/Contents/MacOS/cc-switch`
+5. 移除 quarantine 避免首次打开提示
 
 ---
 
@@ -92,6 +115,9 @@ git commit -m "feat(xxx): description"
 git checkout main && git fetch upstream && git merge upstream/main --ff-only && \
 git checkout local/otty-terminal && git rebase main
 
-# 打包
+# 打包（日常推荐增量脚本）
+./scripts/quick-build.sh
+
+# 完整打包（首次或依赖变更后）
 pnpm tauri build
 ```
