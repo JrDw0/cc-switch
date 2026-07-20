@@ -186,7 +186,7 @@ const filterSetToAllowedValues = (
   return changed ? next : current;
 };
 
-export function SessionManagerPage({ appId }: { appId: string }) {
+export function SessionManagerPage({ appId: _appId }: { appId: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading, refetch } = useSessionsQuery();
@@ -209,9 +209,7 @@ export function SessionManagerPage({ appId }: { appId: string }) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [search, setSearch] = useState("");
-  const [providerFilter, setProviderFilter] = useState<ProviderFilter>(
-    appId as ProviderFilter,
-  );
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [listViewMode, setListViewMode] = useState<SessionListViewMode>(
     readInitialSessionListViewMode,
