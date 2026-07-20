@@ -3054,14 +3054,9 @@ fn launch_macos_iterm2(script_file: &std::path::Path) -> Result<(), String> {
 fn build_macos_otty_applescript(script_file: &std::path::Path) -> String {
     format!(
         r#"set launcher_script to {launcher}
-set was_running to application "Otty" is running
 tell application "Otty"
     activate
-    if (count of windows) > 0 then
-        do script launcher_script in front window
-    else
-        do script launcher_script
-    end if
+    do script launcher_script in front window
 end tell"#,
         launcher = applescript_exec_launcher_command(script_file)
     )
@@ -3078,23 +3073,28 @@ fn launch_macos_otty(script_file: &std::path::Path) -> Result<(), String> {
     .find(|path| std::path::Path::new(path).is_file());
 
     if let Some(cli) = cli {
-        let command = format!(
-            "exec sh {}",
-            shell_single_quote(&script_file.to_string_lossy())
-        );
-        let output = std::process::Command::new(cli)
-            .args(["tab", "new", "--command", &command])
-            .output()
-            .map_err(|e| format!("启动 Otty tab 失败: {e}"))?;
-
-        if output.status.success() {
+        if launch_macos_otty_cli(cli, script_file).is_ok() {
             return Ok(());
         }
+        log::warn!("Otty CLI 创建 tab 或执行启动脚本失败，回退到 AppleScript");
+    }
 
-        log::warn!(
-            "Otty CLI 创建 tab 失败，回退到 AppleScript: {}",
-            decode_command_output(&output.stderr)
-        );
+    run_terminal_osascript(&build_macos_otty_applescript(script_file), "Otty")
+}
+
+#[cfg(target_os = "macos")]
+fn launch_macos_otty_cli(
+    cli: &str,
+    script_file: &std::path::Path,
+) -> Result<(), String> {
+    use std::process::Command;
+
+    let status = Command::new(cli)
+        .args(["tab", "new"])
+        .status()
+        .map_err(|e| format!("启动 Otty tab 失败: {e}"))?;
+    if !status.success() {
+        return Err("Otty CLI failed to create a tab".to_string());
     }
 
     run_terminal_osascript(&build_macos_otty_applescript(script_file), "Otty")
