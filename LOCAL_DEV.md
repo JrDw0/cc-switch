@@ -81,6 +81,22 @@ pnpm tauri build
 4. 复制二进制到 `/Applications/CC Switch.app/Contents/MacOS/cc-switch`
 5. 移除 quarantine 避免首次打开提示
 
+### 方式 C：快速本地开发测试（推荐）
+
+```bash
+./scripts/dev-build.sh
+```
+
+这个脚本使用 Tauri 的 `debug` profile，并且只生成 `.app`，不生成 DMG 或 updater 文件。它会完整替换 `/Applications/CC Switch.app`，避免手动替换裸二进制造成前端资源或 App Bundle 状态异常。
+
+适合日常的小改动测试；正式发布仍使用 `pnpm tauri build`。
+
+| 方式 | 用途 | 特点 |
+|---|---|---|
+| `pnpm tauri dev` | 开发调试 | 前端热更新，不替换安装包 |
+| `./scripts/dev-build.sh` | 本地安装测试 | debug 构建，只生成 `.app` |
+| `pnpm tauri build` | 正式发布 | release 构建，生成 `.app`、DMG 和 updater |
+
 ---
 
 ## 新增本地修改
@@ -115,8 +131,8 @@ git commit -m "feat(xxx): description"
 git checkout main && git fetch upstream && git merge upstream/main --ff-only && \
 git checkout local/otty-terminal && git rebase main
 
-# 打包（日常推荐增量脚本）
-./scripts/quick-build.sh
+# 快速本地安装测试
+./scripts/dev-build.sh
 
 # 完整打包（首次或依赖变更后）
 pnpm tauri build
