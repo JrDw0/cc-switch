@@ -12,11 +12,19 @@ BUILT_APP="$SCRIPT_DIR/src-tauri/target/debug/bundle/macos/CC Switch.app"
 cd "$SCRIPT_DIR"
 
 echo "Building debug App bundle..."
+set +e
 pnpm tauri build --debug --bundles app
+BUILD_STATUS=$?
+set -e
 
 if [ ! -d "$BUILT_APP" ]; then
     echo "Build completed but App bundle was not found: $BUILT_APP" >&2
     exit 1
+fi
+
+if [ "$BUILD_STATUS" -ne 0 ]; then
+    echo "Tauri exited with $BUILD_STATUS, but the App bundle was generated."
+    echo "Continuing with local replacement; updater signing is not needed for local testing."
 fi
 
 if pgrep -f "/Applications/CC Switch.app/Contents/MacOS/cc-switch" >/dev/null 2>&1; then
