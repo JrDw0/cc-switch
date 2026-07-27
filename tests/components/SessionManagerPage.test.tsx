@@ -289,6 +289,140 @@ describe("SessionManagerPage", () => {
     expect(toastSuccessMock).toHaveBeenCalled();
   });
 
+  it.each([
+    ["Control+F", { ctrlKey: true }],
+    ["Meta+F", { metaKey: true }],
+  ])("opens session search with %s", async (_shortcut, modifiers) => {
+    renderPage();
+
+    fireEvent.keyDown(window, { key: "f", ...modifiers });
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox")).toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toHaveFocus();
+    });
+  });
+
+  it("refocuses search and preserves the keyword when the shortcut is repeated", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    const input = await screen.findByRole("textbox");
+    await user.type(input, "Alpha");
+
+    fireEvent.keyDown(input, { key: "f", ctrlKey: true });
+
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(input).toHaveValue("Alpha");
+
+    input.blur();
+
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(input).toHaveValue("Alpha");
+  });
+
+  it("filters sessions by a custom last-active date range", async () => {
+    const today = new Date();
+    const todayStart = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    ).getTime();
+    const from = new Date(todayStart - 24 * 60 * 60 * 1000);
+    const to = new Date(todayStart);
+    const fromValue = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-${String(from.getDate()).padStart(2, "0")}`;
+    const toValue = `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, "0")}-${String(to.getDate()).padStart(2, "0")}`;
+
+    setSessionFixtures(
+      [
+        {
+          providerId: "codex",
+          sessionId: "in-range",
+          title: "In Range",
+          lastActiveAt: todayStart + 12 * 60 * 60 * 1000,
+          sourcePath: "/mock/in-range.jsonl",
+        },
+        {
+          providerId: "codex",
+          sessionId: "out-of-range",
+          title: "Out of Range",
+          lastActiveAt: todayStart - 2 * 24 * 60 * 60 * 1000,
+          sourcePath: "/mock/out-of-range.jsonl",
+        },
+      ],
+      {},
+    );
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "In Range" }),
+      ).toBeInTheDocument(),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /时间筛选/i }));
+    fireEvent.change(screen.getByLabelText("开始"), {
+      target: { value: fromValue },
+    });
+    fireEvent.change(screen.getByLabelText("结束"), {
+      target: { value: toValue },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "In Range" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Out of Range")).not.toBeInTheDocument();
+    });
+  });
+
+  it("supports selecting all sessions older than 90 days for batch deletion", async () => {
+    const now = Date.now();
+    setSessionFixtures(
+      [
+        {
+          providerId: "codex",
+          sessionId: "old-session",
+          title: "Old Session",
+          lastActiveAt: now - 91 * 24 * 60 * 60 * 1000,
+          sourcePath: "/mock/old-session.jsonl",
+        },
+        {
+          providerId: "codex",
+          sessionId: "recent-session",
+          title: "Recent Session",
+          lastActiveAt: now - 10 * 24 * 60 * 60 * 1000,
+          sourcePath: "/mock/recent-session.jsonl",
+        },
+      ],
+      {},
+    );
+
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Old Session")).toBeInTheDocument(),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /时间筛选/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /90 天前及更早/i }),
+    );
+    expect(screen.getAllByText("Old Session").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Recent Session")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /90 天前及更早/i }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /批量管理/i }));
+    await userEvent.click(screen.getByRole("button", { name: /全选当前/i }));
+
+    expect(screen.getByRole("checkbox", { name: /选择会话/i })).toBeChecked();
+  });
+
   it("restores batch delete controls when deleteMany rejects", async () => {
     const deleteManySpy = vi
       .spyOn(sessionsApi, "deleteMany")

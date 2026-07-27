@@ -21,6 +21,8 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
+  CalendarDays,
+  Check,
 } from "lucide-react";
 import {
   useDeleteSessionMutation,
@@ -41,6 +43,11 @@ import {
 } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Collapsible,
   CollapsibleContent,
@@ -91,6 +98,21 @@ type ProviderFilter =
   | "hermes";
 
 type SessionListViewMode = "flat" | "grouped";
+
+type SessionDatePreset =
+  | "all"
+  | "today"
+  | "7d"
+  | "30d"
+  | "90d"
+  | "older90d"
+  | "custom";
+
+type SessionDateRange = {
+  preset: SessionDatePreset;
+  from: string;
+  to: string;
+};
 
 type GroupSelectionState = {
   checked: boolean | "indeterminate";
@@ -186,6 +208,32 @@ const filterSetToAllowedValues = (
   return changed ? next : current;
 };
 
+const formatDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getDateRangeBounds = (range: SessionDateRange) => {
+  if (range.preset === "all" || (!range.from && !range.to)) return null;
+
+  const from = range.from ? new Date(`${range.from}T00:00:00`) : null;
+  const to = range.to ? new Date(`${range.to}T00:00:00`) : null;
+  if (from && Number.isNaN(from.getTime())) return null;
+  if (to && Number.isNaN(to.getTime())) return null;
+  if (from && to && from.getTime() > to.getTime()) {
+    return { from: 1, to: 0 };
+  }
+
+  return {
+    from: from?.getTime() ?? Number.NEGATIVE_INFINITY,
+    to: to
+      ? new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1).getTime()
+      : Number.POSITIVE_INFINITY,
+  };
+};
+
 export function SessionManagerPage({ appId: _appId }: { appId: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -210,6 +258,12 @@ export function SessionManagerPage({ appId: _appId }: { appId: string }) {
 
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
+  const [dateRange, setDateRange] = useState<SessionDateRange>({
+    preset: "all",
+    from: "",
+    to: "",
+  });
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [listViewMode, setListViewMode] = useState<SessionListViewMode>(
     readInitialSessionListViewMode,
@@ -230,9 +284,92 @@ export function SessionManagerPage({ appId: _appId }: { appId: string }) {
     providerFilter,
   });
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsSearchOpen(true);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      }
+    };
+
+    globalThis.addEventListener("keydown", handleKeyDown, true);
+    return () => globalThis.removeEventListener("keydown", handleKeyDown, true);
+  }, []);
+
   const filteredSessions = useMemo(() => {
-    return searchSessions(search);
-  }, [searchSessions, search]);
+    const dateBounds = getDateRangeBounds(dateRange);
+    if (!dateBounds) return searchSessions(search);
+
+    return searchSessions(search).filter((session) => {
+      const timestamp = session.lastActiveAt ?? session.createdAt;
+      return (
+        timestamp !== undefined &&
+        timestamp >= dateBounds.from &&
+        timestamp < dateBounds.to
+      );
+    });
+  }, [dateRange, search, searchSessions]);
+
+  const dateFilterLabel =
+    dateRange.preset === "all"
+      ? t("sessionManager.dateFilterall", { defaultValue: "全部时间" })
+      : t(`sessionManager.dateFilter${dateRange.preset}`, {
+          defaultValue:
+            dateRange.preset === "custom"
+              ? "自定义"
+              : dateRange.preset === "today"
+                ? "今天"
+                : dateRange.preset === "older90d"
+                  ? "90 天前及更早"
+                  : `最近 ${dateRange.preset.replace("d", "")} 天`,
+        });
+
+  const setDatePreset = (preset: Exclude<SessionDatePreset, "custom">) => {
+    if (preset === "all") {
+      setDateRange({ preset, from: "", to: "" });
+      return;
+    }
+
+    const today = new Date();
+    const from = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+    if (preset === "older90d") {
+      from.setDate(from.getDate() - 90);
+      setDateRange({
+        preset,
+        from: "",
+        to: formatDateInputValue(from),
+      });
+      return;
+    }
+    const days = preset === "today" ? 1 : Number(preset.replace("d", ""));
+    from.setDate(from.getDate() - days + 1);
+    setDateRange({
+      preset,
+      from: formatDateInputValue(from),
+      to: formatDateInputValue(today),
+    });
+  };
+
+  const handleDatePresetClick = (
+    preset: Exclude<SessionDatePreset, "custom">,
+  ) => {
+    setDatePreset(preset);
+    setDateFilterOpen(false);
+  };
+
+  const updateCustomDateRange = (field: "from" | "to", value: string) => {
+    setDateRange((current) => ({
+      ...current,
+      preset: "custom",
+      [field]: value,
+    }));
+  };
 
   const groupedSessions = useMemo(
     () =>
@@ -860,289 +997,499 @@ export function SessionManagerPage({ appId: _appId }: { appId: string }) {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <CardTitle className="text-sm font-medium whitespace-nowrap">
-                          {t("sessionManager.sessionList")}
-                        </CardTitle>
-                        <Badge variant="secondary" className="text-xs">
-                          {filteredSessions.length}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {(selectionMode ||
-                          deletableFilteredSessions.length > 0) && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant={selectionMode ? "secondary" : "ghost"}
-                                size="icon"
-                                className={
-                                  selectionMode
-                                    ? "size-7 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-950/60"
-                                    : "size-7"
-                                }
-                                aria-label={
-                                  selectionMode
-                                    ? t("sessionManager.exitBatchModeTooltip", {
-                                        defaultValue: "退出批量管理",
-                                      })
-                                    : t("sessionManager.manageBatchTooltip", {
-                                        defaultValue: "批量管理",
-                                      })
-                                }
-                                onClick={() => {
-                                  if (selectionMode) {
-                                    exitSelectionMode();
-                                  } else {
-                                    setSelectionMode(true);
-                                  }
-                                }}
-                              >
-                                <CheckSquare className="size-3.5" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {selectionMode
-                                ? t("sessionManager.exitBatchModeTooltip", {
-                                    defaultValue: "退出批量管理",
-                                  })
-                                : t("sessionManager.manageBatchTooltip", {
-                                    defaultValue: "批量管理",
-                                  })}
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                        <Select
-                          value={listViewMode}
-                          onValueChange={(value) =>
-                            setListViewMode(value as SessionListViewMode)
-                          }
-                        >
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <SelectTrigger
-                                className="size-7 p-0 justify-center border-0 bg-transparent hover:bg-muted"
-                                aria-label={t(
-                                  "sessionManager.viewModeTooltip",
-                                  {
-                                    defaultValue: "查看方式",
-                                  },
-                                )}
-                              >
-                                <span className="sr-only">
-                                  {t("sessionManager.viewModeTooltip", {
-                                    defaultValue: "查看方式",
-                                  })}
-                                </span>
-                                {listViewMode === "grouped" ? (
-                                  <ListTree className="size-3.5" />
-                                ) : (
-                                  <List className="size-3.5" />
-                                )}
-                              </SelectTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent>{listViewModeLabel}</TooltipContent>
-                          </Tooltip>
-                          <SelectContent className="w-40">
-                            <SelectItem value="flat">
-                              <div className="flex items-center gap-2">
-                                <List className="size-3.5" />
-                                <span>
-                                  {t("sessionManager.viewModeFlat", {
-                                    defaultValue: "列表",
-                                  })}
-                                </span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="grouped">
-                              <div className="flex items-center gap-2">
-                                <ListTree className="size-3.5" />
-                                <span>
-                                  {t("sessionManager.viewModeGrouped", {
-                                    defaultValue: "分类",
-                                  })}
-                                </span>
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {listViewMode === "grouped" && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-7"
-                                aria-label={t(
-                                  "sessionManager.collapseAllGroups",
-                                  {
-                                    defaultValue: "全部收起",
-                                  },
-                                )}
-                                onClick={handleCollapseAllGroups}
-                              >
-                                <ChevronsDownUp className="size-3.5" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t("sessionManager.collapseAllGroups", {
-                                defaultValue: "全部收起",
-                              })}
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CardTitle className="text-sm font-medium whitespace-nowrap">
+                        {t("sessionManager.sessionList")}
+                      </CardTitle>
+                      <Badge variant="secondary" className="text-xs">
+                        {filteredSessions.length}
+                      </Badge>
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+                      {(selectionMode ||
+                        deletableFilteredSessions.length > 0) && (
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
-                              variant="ghost"
+                              variant={selectionMode ? "secondary" : "ghost"}
                               size="icon"
-                              className="size-7"
+                              className={
+                                selectionMode
+                                  ? "size-7 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-950/60"
+                                  : "size-7"
+                              }
+                              aria-label={
+                                selectionMode
+                                  ? t("sessionManager.exitBatchModeTooltip", {
+                                      defaultValue: "退出批量管理",
+                                    })
+                                  : t("sessionManager.manageBatchTooltip", {
+                                      defaultValue: "批量管理",
+                                    })
+                              }
                               onClick={() => {
-                                setIsSearchOpen(true);
-                                setTimeout(
-                                  () => searchInputRef.current?.focus(),
-                                  0,
-                                );
+                                if (selectionMode) {
+                                  exitSelectionMode();
+                                } else {
+                                  setSelectionMode(true);
+                                }
                               }}
                             >
-                              <Search className="size-3.5" />
+                              <CheckSquare className="size-3.5" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>
-                            {t("sessionManager.searchSessions")}
+                            {selectionMode
+                              ? t("sessionManager.exitBatchModeTooltip", {
+                                  defaultValue: "退出批量管理",
+                                })
+                              : t("sessionManager.manageBatchTooltip", {
+                                  defaultValue: "批量管理",
+                                })}
                           </TooltipContent>
                         </Tooltip>
-
-                        <Select
-                          value={providerFilter}
-                          onValueChange={(value) =>
-                            setProviderFilter(value as ProviderFilter)
-                          }
-                        >
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <SelectTrigger
-                                className="size-7 p-0 justify-center border-0 bg-transparent hover:bg-muted"
-                                aria-label={t(
-                                  "sessionManager.providerFilterTooltip",
-                                  {
-                                    defaultValue: "供应商筛选",
-                                  },
-                                )}
-                              >
-                                <span className="sr-only">
-                                  {t("sessionManager.providerFilterTooltip", {
-                                    defaultValue: "供应商筛选",
-                                  })}
-                                </span>
-                                <ProviderIcon
-                                  icon={
-                                    providerFilter === "all"
-                                      ? "apps"
-                                      : getProviderIconName(providerFilter)
-                                  }
-                                  name={providerFilter}
-                                  size={14}
-                                />
-                              </SelectTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {providerFilter === "all"
-                                ? t("sessionManager.providerFilterAll")
-                                : providerFilter}
-                            </TooltipContent>
-                          </Tooltip>
-                          <SelectContent>
-                            <SelectItem value="all">
-                              <div className="flex items-center gap-2">
-                                <ProviderIcon
-                                  icon="apps"
-                                  name="all"
-                                  size={14}
-                                />
-                                <span>
-                                  {t("sessionManager.providerFilterAll")}
-                                </span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="codex">
-                              <div className="flex items-center gap-2">
-                                <ProviderIcon
-                                  icon="openai"
-                                  name="codex"
-                                  size={14}
-                                />
-                                <span>Codex</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="grokbuild">
-                              <div className="flex items-center gap-2">
-                                <ProviderIcon
-                                  icon="grok"
-                                  name="grokbuild"
-                                  size={14}
-                                />
-                                <span>Grok Build</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="claude">
-                              <div className="flex items-center gap-2">
-                                <ProviderIcon
-                                  icon="claude"
-                                  name="claude"
-                                  size={14}
-                                />
-                                <span>Claude Code</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="opencode">
-                              <div className="flex items-center gap-2">
-                                <ProviderIcon
-                                  icon="opencode"
-                                  name="opencode"
-                                  size={14}
-                                />
-                                <span>OpenCode</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="openclaw">
-                              <div className="flex items-center gap-2">
-                                <ProviderIcon
-                                  icon="openclaw"
-                                  name="openclaw"
-                                  size={14}
-                                />
-                                <span>OpenClaw</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="gemini">
-                              <div className="flex items-center gap-2">
-                                <ProviderIcon
-                                  icon="gemini"
-                                  name="gemini"
-                                  size={14}
-                                />
-                                <span>Gemini CLI</span>
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-
+                      )}
+                      <Select
+                        value={listViewMode}
+                        onValueChange={(value) =>
+                          setListViewMode(value as SessionListViewMode)
+                        }
+                      >
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <SelectTrigger
+                              className="size-7 shrink-0 p-0 justify-center border-0 bg-transparent hover:bg-muted"
+                              aria-label={t("sessionManager.viewModeTooltip", {
+                                defaultValue: "查看方式",
+                              })}
+                            >
+                              <span className="sr-only">
+                                {t("sessionManager.viewModeTooltip", {
+                                  defaultValue: "查看方式",
+                                })}
+                              </span>
+                              {listViewMode === "grouped" ? (
+                                <ListTree className="size-3.5" />
+                              ) : (
+                                <List className="size-3.5" />
+                              )}
+                            </SelectTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent>{listViewModeLabel}</TooltipContent>
+                        </Tooltip>
+                        <SelectContent className="w-40">
+                          <SelectItem value="flat">
+                            <div className="flex items-center gap-2">
+                              <List className="size-3.5" />
+                              <span>
+                                {t("sessionManager.viewModeFlat", {
+                                  defaultValue: "列表",
+                                })}
+                              </span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="grouped">
+                            <div className="flex items-center gap-2">
+                              <ListTree className="size-3.5" />
+                              <span>
+                                {t("sessionManager.viewModeGrouped", {
+                                  defaultValue: "分类",
+                                })}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {listViewMode === "grouped" && (
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
                               size="icon"
                               className="size-7"
-                              onClick={() => void refetch()}
+                              aria-label={t(
+                                "sessionManager.collapseAllGroups",
+                                {
+                                  defaultValue: "全部收起",
+                                },
+                              )}
+                              onClick={handleCollapseAllGroups}
                             >
-                              <RefreshCw className="size-3.5" />
+                              <ChevronsDownUp className="size-3.5" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>{t("common.refresh")}</TooltipContent>
+                          <TooltipContent>
+                            {t("sessionManager.collapseAllGroups", {
+                              defaultValue: "全部收起",
+                            })}
+                          </TooltipContent>
                         </Tooltip>
-                      </div>
+                      )}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            onClick={() => {
+                              setIsSearchOpen(true);
+                              setTimeout(
+                                () => searchInputRef.current?.focus(),
+                                0,
+                              );
+                            }}
+                          >
+                            <Search className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("sessionManager.searchSessions")}
+                        </TooltipContent>
+                      </Tooltip>
+
+                      <Select
+                        value={providerFilter}
+                        onValueChange={(value) =>
+                          setProviderFilter(value as ProviderFilter)
+                        }
+                      >
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <SelectTrigger
+                              className={`size-7 shrink-0 p-0 justify-center border-0 hover:bg-muted ${
+                                providerFilter === "all"
+                                  ? "bg-transparent"
+                                  : "bg-primary/10 text-primary hover:bg-primary/15"
+                              }`}
+                              aria-label={t(
+                                "sessionManager.providerFilterTooltip",
+                                {
+                                  defaultValue: "供应商筛选",
+                                },
+                              )}
+                            >
+                              <span className="sr-only">
+                                {t("sessionManager.providerFilterTooltip", {
+                                  defaultValue: "供应商筛选",
+                                })}
+                              </span>
+                              <ProviderIcon
+                                icon={
+                                  providerFilter === "all"
+                                    ? "apps"
+                                    : getProviderIconName(providerFilter)
+                                }
+                                name={providerFilter}
+                                size={14}
+                              />
+                            </SelectTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {providerFilter === "all"
+                              ? t("sessionManager.providerFilterAll")
+                              : providerFilter}
+                          </TooltipContent>
+                        </Tooltip>
+                        <SelectContent>
+                          <SelectItem value="all">
+                            <div className="flex items-center gap-2">
+                              <ProviderIcon icon="apps" name="all" size={14} />
+                              <span>
+                                {t("sessionManager.providerFilterAll")}
+                              </span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="codex">
+                            <div className="flex items-center gap-2">
+                              <ProviderIcon
+                                icon="openai"
+                                name="codex"
+                                size={14}
+                              />
+                              <span>Codex</span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="grokbuild">
+                            <div className="flex items-center gap-2">
+                              <ProviderIcon
+                                icon="grok"
+                                name="grokbuild"
+                                size={14}
+                              />
+                              <span>Grok Build</span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="claude">
+                            <div className="flex items-center gap-2">
+                              <ProviderIcon
+                                icon="claude"
+                                name="claude"
+                                size={14}
+                              />
+                              <span>Claude Code</span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="opencode">
+                            <div className="flex items-center gap-2">
+                              <ProviderIcon
+                                icon="opencode"
+                                name="opencode"
+                                size={14}
+                              />
+                              <span>OpenCode</span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="openclaw">
+                            <div className="flex items-center gap-2">
+                              <ProviderIcon
+                                icon="openclaw"
+                                name="openclaw"
+                                size={14}
+                              />
+                              <span>OpenClaw</span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="gemini">
+                            <div className="flex items-center gap-2">
+                              <ProviderIcon
+                                icon="gemini"
+                                name="gemini"
+                                size={14}
+                              />
+                              <span>Gemini CLI</span>
+                            </div>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <Popover
+                        open={dateFilterOpen}
+                        onOpenChange={setDateFilterOpen}
+                      >
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={`relative size-7 shrink-0 ${
+                                  dateRange.preset === "all"
+                                    ? ""
+                                    : "bg-primary/10 text-primary hover:bg-primary/15"
+                                }`}
+                                aria-label={t(
+                                  "sessionManager.dateFilterTooltip",
+                                  { defaultValue: "时间筛选" },
+                                )}
+                              >
+                                <CalendarDays className="size-3.5" />
+                              </Button>
+                            </PopoverTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent>{dateFilterLabel}</TooltipContent>
+                        </Tooltip>
+                        <PopoverContent
+                          className="w-[min(22rem,calc(100vw-1rem))] p-4"
+                          align="end"
+                        >
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-sm font-semibold">
+                                  {t("sessionManager.dateFilterTitle", {
+                                    defaultValue: "按最近活跃时间筛选",
+                                  })}
+                                </div>
+                                <div className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {t("sessionManager.dateFilterSubtitle", {
+                                    defaultValue:
+                                      "筛选会话列表中的最后活跃时间",
+                                  })}
+                                </div>
+                              </div>
+                              <Badge
+                                variant={
+                                  dateRange.preset === "all"
+                                    ? "outline"
+                                    : "secondary"
+                                }
+                                className="shrink-0 text-[11px]"
+                              >
+                                {dateFilterLabel}
+                              </Badge>
+                            </div>
+
+                            <Button
+                              type="button"
+                              variant={
+                                dateRange.preset === "all"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              size="sm"
+                              className="h-9 w-full justify-between px-3 text-xs"
+                              aria-pressed={dateRange.preset === "all"}
+                              onClick={() => handleDatePresetClick("all")}
+                            >
+                              <span>
+                                {t("sessionManager.dateFilterall", {
+                                  defaultValue: "全部时间",
+                                })}
+                              </span>
+                              {dateRange.preset === "all" && (
+                                <Check className="size-3.5 shrink-0" />
+                              )}
+                            </Button>
+
+                            <section className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-medium text-muted-foreground">
+                                  {t("sessionManager.dateFilterRecentGroup", {
+                                    defaultValue: "最近活跃",
+                                  })}
+                                </span>
+                                <div className="h-px flex-1 bg-border" />
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {(["today", "7d", "30d", "90d"] as const).map(
+                                  (preset) => (
+                                    <Button
+                                      key={preset}
+                                      type="button"
+                                      variant={
+                                        dateRange.preset === preset
+                                          ? "default"
+                                          : "ghost"
+                                      }
+                                      size="sm"
+                                      className="h-9 justify-between gap-2 px-3 text-xs"
+                                      aria-pressed={dateRange.preset === preset}
+                                      onClick={() =>
+                                        handleDatePresetClick(preset)
+                                      }
+                                    >
+                                      <span className="truncate">
+                                        {t(
+                                          `sessionManager.dateFilter${preset}`,
+                                          {
+                                            defaultValue:
+                                              preset === "today"
+                                                ? "今天"
+                                                : `最近 ${preset.replace("d", "")} 天`,
+                                          },
+                                        )}
+                                      </span>
+                                      {dateRange.preset === preset && (
+                                        <Check className="size-3.5 shrink-0" />
+                                      )}
+                                    </Button>
+                                  ),
+                                )}
+                              </div>
+                            </section>
+
+                            <section className="space-y-2 border-t pt-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-medium text-muted-foreground">
+                                  {t("sessionManager.dateFilterCleanupGroup", {
+                                    defaultValue: "历史清理",
+                                  })}
+                                </span>
+                                <div className="h-px flex-1 bg-border" />
+                              </div>
+                              <Button
+                                type="button"
+                                variant={
+                                  dateRange.preset === "older90d"
+                                    ? "default"
+                                    : "ghost"
+                                }
+                                size="sm"
+                                className="h-9 w-full justify-between gap-2 px-3 text-xs"
+                                aria-pressed={dateRange.preset === "older90d"}
+                                onClick={() =>
+                                  handleDatePresetClick("older90d")
+                                }
+                              >
+                                <span className="truncate">
+                                  {t("sessionManager.dateFilterolder90d", {
+                                    defaultValue: "90 天前及更早",
+                                  })}
+                                </span>
+                                {dateRange.preset === "older90d" && (
+                                  <Check className="size-3.5 shrink-0" />
+                                )}
+                              </Button>
+                            </section>
+
+                            <section className="space-y-2 border-t pt-3">
+                              <div className="text-[11px] font-medium text-muted-foreground">
+                                {t("sessionManager.dateFilterCustom", {
+                                  defaultValue: "自定义时间段",
+                                })}
+                              </div>
+                              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-2">
+                                <label
+                                  htmlFor="session-date-from"
+                                  className="text-xs text-muted-foreground"
+                                >
+                                  {t("sessionManager.dateFilterFrom", {
+                                    defaultValue: "开始",
+                                  })}
+                                </label>
+                                <Input
+                                  id="session-date-from"
+                                  type="date"
+                                  value={dateRange.from}
+                                  max={dateRange.to || undefined}
+                                  onChange={(event) =>
+                                    updateCustomDateRange(
+                                      "from",
+                                      event.target.value,
+                                    )
+                                  }
+                                  className="h-9 min-w-0 text-xs"
+                                />
+                                <label
+                                  htmlFor="session-date-to"
+                                  className="text-xs text-muted-foreground"
+                                >
+                                  {t("sessionManager.dateFilterTo", {
+                                    defaultValue: "结束",
+                                  })}
+                                </label>
+                                <Input
+                                  id="session-date-to"
+                                  type="date"
+                                  value={dateRange.to}
+                                  min={dateRange.from || undefined}
+                                  onChange={(event) =>
+                                    updateCustomDateRange(
+                                      "to",
+                                      event.target.value,
+                                    )
+                                  }
+                                  className="h-9 min-w-0 text-xs"
+                                />
+                              </div>
+                            </section>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            onClick={() => void refetch()}
+                          >
+                            <RefreshCw className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("common.refresh")}</TooltipContent>
+                      </Tooltip>
                     </div>
                     {selectionMode && (
                       <div className="grid gap-3 rounded-md border bg-muted/40 px-3 py-2.5">
