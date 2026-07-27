@@ -100,7 +100,7 @@ const UnifiedSkillsPanel = React.forwardRef<
     new Set(),
   );
   const [batchTargetApp, setBatchTargetApp] = useState<BatchTargetApp>(() =>
-    MCP_SKILLS_APP_IDS.includes(currentApp as BatchTargetApp)
+    SKILLS_APP_IDS.includes(currentApp as BatchTargetApp)
       ? (currentApp as BatchTargetApp)
       : "claude",
   );
@@ -198,7 +198,7 @@ const UnifiedSkillsPanel = React.forwardRef<
   }, [batchMode, filteredSkills]);
 
   useEffect(() => {
-    if (MCP_SKILLS_APP_IDS.includes(currentApp as BatchTargetApp)) {
+    if (SKILLS_APP_IDS.includes(currentApp as BatchTargetApp)) {
       setBatchTargetApp(currentApp as BatchTargetApp);
     }
   }, [currentApp]);
@@ -647,7 +647,7 @@ const UnifiedSkillsPanel = React.forwardRef<
                 <span className="text-xs text-muted-foreground">
                   {t("skills.batch.targetApp")}
                 </span>
-                {MCP_SKILLS_APP_IDS.map((app) => (
+                {SKILLS_APP_IDS.map((app) => (
                   <button
                     key={app}
                     type="button"
