@@ -47,55 +47,46 @@ git rebase main
 
 ## 打包替换本地 App
 
-### 方式 A：完整打包（首次或依赖变更时）
-
-```bash
-git checkout local/otty-terminal
-pnpm tauri build
-
-# 产物位置：
-# src-tauri/target/release/bundle/macos/CC Switch.app
-# src-tauri/target/release/bundle/dmg/CC Switch_3.17.0_aarch64.dmg
-```
-
-打包完成后把 `.app` 拖到 `/Applications` 替换即可。
-
-### 方式 B：增量打包（日常改代码推荐）
-
-```bash
-./scripts/quick-build.sh
-```
-
-**原理**：跳过了 `.app`/`.dmg` 重新打包阶段，cargo 自带增量编译，只重编译改动部分。
-
-**耗时对比**：
-| 方式 | 首次 | 后续改代码 |
-|---|---|---|
-| `pnpm tauri build` | ~6 分钟 | 仍然要 bundle，慢 |
-| `./scripts/quick-build.sh` | 不可用（需先完整打包） | **10-30 秒**，只替换二进制 |
-
-**脚本自动做的事**：
-1. 检测 `dist/` 是否过期，按需跑 `pnpm vite build`（更新前端资源）
-2. `cargo build --release`（增量编译 Rust 后端，含嵌入前端资源）
-3. 关闭正在运行的 CC Switch
-4. 复制二进制到 `/Applications/CC Switch.app/Contents/MacOS/cc-switch`
-5. 移除 quarantine 避免首次打开提示
-
-### 方式 C：快速本地开发测试（推荐）
+### 方式 A：快速本地开发测试（推荐）
 
 ```bash
 ./scripts/dev-build.sh
 ```
 
-这个脚本使用 Tauri 的 `debug` profile，并且只生成 `.app`，不生成 DMG 或 updater 文件。它会完整替换 `/Applications/CC Switch.app`，避免手动替换裸二进制造成前端资源或 App Bundle 状态异常。
+这个脚本使用 Tauri 的 `debug` profile，只生成 `.app`，不生成 DMG 或 updater 文件。它会完整替换 `/Applications/CC Switch.app`，包含构建前端 + 编译 Rust + 替换 + 启动的完整流程。
 
-适合日常的小改动测试；正式发布仍使用 `pnpm tauri build`。
+**耗时**：~3 分钟（Rust 增量编译）
 
-| 方式 | 用途 | 特点 |
+> ⚠️ **签名错误可忽略**：构建末尾可能出现 `TAURI_SIGNING_PRIVATE_KEY` 报错，这是 updater 签名私钥未配置导致的。本地测试不需要签名，App Bundle 仍会正常生成。
+
+**脚本自动做的事**：
+1. `pnpm tauri build --debug --bundles app`（自动包含前端构建）
+2. 关闭正在运行的 CC Switch
+3. 替换 `/Applications/CC Switch.app`
+4. 移除 quarantine 标记
+5. 启动应用
+
+### 方式 B：Release 完整打包（正式发布）
+
+```bash
+pnpm tauri build
+```
+
+**耗时**：~6 分钟
+
+# 产物位置：
+- `src-tauri/target/release/bundle/macos/CC Switch.app`
+- `src-tauri/target/release/bundle/dmg/CC Switch_3.19.0_aarch64.dmg`
+
+### ⚠️ 不要用 cargo build 直接编译
+
+Tauri v2 将前端资源（`dist/`）在编译时嵌入 Rust 二进制。直接运行 `cargo build` 时，build script 的 `rerun-if-changed` 只监控 `tauri.conf.json` 和 `capabilities/`，不监控 `dist/`。前端更新后直接 `cargo build` 会导致**白屏**（嵌入旧前端资源）。如果一定要用增量编译，必须在前端构建后 `touch src-tauri/tauri.conf.json` 强制 build script 重新执行。
+
+| 方式 | 用途 | 耗时 |
 |---|---|---|
-| `pnpm tauri dev` | 开发调试 | 前端热更新，不替换安装包 |
-| `./scripts/dev-build.sh` | 本地安装测试 | debug 构建，只生成 `.app` |
-| `pnpm tauri build` | 正式发布 | release 构建，生成 `.app`、DMG 和 updater |
+| `./scripts/dev-build.sh` | 本地安装测试 | ~3 分钟 |
+| `pnpm tauri build` | 正式发布 | ~6 分钟 |
+| `pnpm tauri dev` | 开发调试 | 热更新，不替换安装包 |
 
 ---
 
