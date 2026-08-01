@@ -28,20 +28,27 @@
 
 ---
 
-## 日常同步上游（定期执行，例如每周）
+## 日常同步上游（merge 方式，推荐）
+
+**注意：本次调整将 rebase 改为 merge。**
+
+对长期维护的 fork 来说，rebase 会让每个本地提交都被重写，冲突反复出现，且已推送后需 `--force-with-lease` 强推；merge 则保留清晰离线历史，冲突只解一次，更安全。
 
 ```bash
-# 1) 同步 upstream 到本地 main
+# 1) 同步 upstream 到本地 main（快进）
 git checkout main
 git fetch upstream
 git merge upstream/main --ff-only
 git push origin main
 
-# 2) 将最新上游合并到本地 feature 分支（rebase 保持历史干净）
+# 2) 将最新上游合并到工作分支（merge，不 rebase）
 git checkout local/otty-terminal
-git rebase main
-# 若遇冲突：编辑 → git add <file> → git rebase --continue
+git merge main
+# 若遇冲突：编辑 → git add <file> → git commit
 ```
+
+> 曾用 rebase 时可能出现本地 main 严重落后。只需上面第 1) 步的
+> `git merge upstream/main --ff-only` 就能把 main 追平，无需重写定制分支历史。
 
 ---
 
@@ -111,7 +118,8 @@ git commit -m "feat(xxx): description"
 |------------|---------------------------------------------|
 | `origin`   | 你的 fork（`JrDw0/cc-switch`）              |
 | `upstream` | 上游原仓库（`farion1231/cc-switch`）         |
-| `fork`     | 同上 fork（与 origin 同指向）               |
+
+> 之前有一个 `fork` remote 与 `origin` 同指向 fork，属冗余，已移除。统一用 `origin` 表示自己的 fork。
 
 ---
 
@@ -120,7 +128,7 @@ git commit -m "feat(xxx): description"
 ```bash
 # 一键同步并更新分支
 git checkout main && git fetch upstream && git merge upstream/main --ff-only && \
-git checkout local/otty-terminal && git rebase main
+git push origin main && git checkout local/otty-terminal && git merge main
 
 # 快速本地安装测试
 ./scripts/dev-build.sh
