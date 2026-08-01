@@ -6,25 +6,26 @@
 
 ## 分支说明
 
-| 分支                | 用途                                                 |
-|---------------------|------------------------------------------------------|
-| `main`              | 纯净同步上游（upstream），**不要在此分支做本地修改** |
-| `local/otty-terminal` | 本地 Otty 终端支持修改，基于 main + 本地提交       |
+| 分支            | 用途                                                 |
+|-----------------|------------------------------------------------------|
+| `main`          | 纯净同步上游（upstream），**不要在此分支做本地修改**   |
+| `local/personal` | 个人长期定制主分支（原 `local/otty-terminal`，基于 main + 本地提交） |
 
 ---
 
 ## 本地修改内容
 
-### `local/otty-terminal` 分支
+### `local/personal` 分支
 
-- 为 macOS 添加 **Otty.app** 终端支持
-- 支持设置 → 首选终端 → 选择 Otty
-- 实现位置：
-  - `src-tauri/src/session_manager/terminal/mod.rs`
-  - `src-tauri/src/commands/misc.rs`
-  - `src/components/settings/TerminalSettings.tsx`
-- Otty 位置：`/System/Volumes/Data/Applications/Otty.app`
-- 使用 AppleScript `do script` 接口（与 Terminal.app 风格一致）
+当前本地独有的定制功能：
+
+- **技能批量管理**（`SKILLS_APP_IDS` 批量选择替换）
+- **会话管理页时间筛选**（时间范围过滤）
+- **provider filter 默认 'all'**（列表页默认值优化）
+- **dev-build.sh 本地构建脚本**（~3 分钟打包替换 `/Applications/CC Switch.app`）
+- **LOCAL_DEV.md + AGENTS.md**（本文件，agent 入口文档）
+
+> 注：原 Otty 终端支持提交已被上游原生实现（上游自带 CLI 优先 + AppleScript 回退，更完善），本分支的 Otty 提交已可废弃。
 
 ---
 
@@ -42,7 +43,7 @@ git merge upstream/main --ff-only
 git push origin main
 
 # 2) 将最新上游合并到工作分支（merge，不 rebase）
-git checkout local/otty-terminal
+git checkout local/personal
 git merge main
 # 若遇冲突：编辑 → git add <file> → git commit
 ```
@@ -102,7 +103,7 @@ Tauri v2 将前端资源（`dist/`）在编译时嵌入 Rust 二进制。直接�
 在 feature 分支上开发：
 
 ```bash
-git checkout local/otty-terminal
+git checkout local/personal
 # ... 编辑文件 ...
 git add -A
 git commit -m "feat(xxx): description"
@@ -128,7 +129,7 @@ git commit -m "feat(xxx): description"
 ```bash
 # 一键同步并更新分支
 git checkout main && git fetch upstream && git merge upstream/main --ff-only && \
-git push origin main && git checkout local/otty-terminal && git merge main
+git push origin main && git checkout local/personal && git merge main
 
 # 快速本地安装测试
 ./scripts/dev-build.sh
